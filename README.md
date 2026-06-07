@@ -143,6 +143,26 @@ python3 gradio_app.py \
 ```
 
 
+### 🎩 Houdini Plugin (HDA)
+
+Hunyuan3D 2.1 can be installed as a native **Houdini Digital Asset (HDA)** SOP node that loads reconstructed models directly into your Geometry network:
+
+1. **One-Click Installation**:
+   Open a terminal/cmd window at the root of this repository and run:
+   ```bash
+   install_houdini.bat
+   ```
+   *This compiles the HDA using your system's `hython.exe` and automatically registers the package json in your user Documents directory (`houdiniXX.X/packages/hunyuan3d.json`).*
+
+2. **Usage**:
+   * Open Houdini.
+   * Go to the **Hunyuan3D** shelf tab and click the tool button, or create a `Hunyuan3D 2.1 Generator` SOP node in any Geometry network.
+   * Select a **Source Image**.
+   * Toggle **Generate Textures** on or off. Unchecking it will generate shape geometry only in under 20 seconds.
+   * Click **Generate 3D Model**.
+   * *The uvicorn API server starts automatically in a clean background shell (preventing environment/PYTHONPATH pollution) and loads the final asset directly into Houdini's native `gltf` geometry loader node.*
+
+
 ## 🔗 BibTeX
 
 If you found this repository helpful, please cite our reports:

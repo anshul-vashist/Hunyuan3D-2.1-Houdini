@@ -18,13 +18,12 @@ A model worker executes the model.
 import argparse
 import asyncio
 import base64
-import logging
 import os
-import sys
+# Disable Hugging Face Hub symlinks on Windows to prevent WinError 1314 permission errors
+os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
 import threading
 import traceback
 import uuid
-from typing import Optional
 
 import torch
 import uvicorn
@@ -33,22 +32,28 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 
 # Import from root-level modules
-from api_models import GenerationRequest, GenerationResponse, StatusResponse, HealthResponse
+from api_models import (
+    GenerationRequest, GenerationResponse, StatusResponse, HealthResponse,
+    SelectionPreviewRequest, SelectionPreviewResponse
+)
 from logger_utils import build_logger
 from constants import (
     SERVER_ERROR_MSG, DEFAULT_SAVE_DIR, API_TITLE, API_DESCRIPTION, 
     API_VERSION, API_CONTACT, API_LICENSE_INFO, API_TAGS_METADATA
 )
 from model_worker import ModelWorker
+from selection_utils import apply_image_selection, image_to_base64, load_image_from_base64
 
 # Global variables
 SAVE_DIR = DEFAULT_SAVE_DIR
+os.makedirs(SAVE_DIR, exist_ok=True)
 worker_id = str(uuid.uuid4())[:6]
 logger = build_logger("controller", f"{SAVE_DIR}/controller.log")
 
 # Global worker and semaphore instances
 worker = None
 model_semaphore = None
+gpu_lock = None
 
 
 app = FastAPI(
@@ -88,7 +93,8 @@ async def generate_3d_model(request: GenerationRequest):
     
     uid = uuid.uuid4()
     try:
-        file_path, uid = worker.generate(uid, params)
+        with gpu_lock:
+            file_path, uid = worker.generate(uid, params)
         return FileResponse(file_path)
     except ValueError as e:
         traceback.print_exc()
@@ -133,7 +139,10 @@ async def send_generation_task(request: GenerationRequest):
     
     uid = uuid.uuid4()
     try:
-        threading.Thread(target=worker.generate, args=(uid, params,)).start()
+        def generate_wrapper(uid, params):
+            with gpu_lock:
+                worker.generate(uid, params)
+        threading.Thread(target=generate_wrapper, args=(uid, params,)).start()
         ret = {"uid": str(uid)}
         return JSONResponse(ret, status_code=200)
     except Exception as e:
@@ -192,6 +201,46 @@ async def status(uid: str):
         return JSONResponse(response, status_code=200)
 
 
+@app.get("/camera/{uid}", tags=["generation"])
+async def get_houdini_camera_script(uid: str):
+    """
+    Download the Houdini Python camera script for a completed generation task.
+
+    Run the returned script inside Houdini to create/update /obj/Generated_Camera
+    with the calculated Hunyuan camera transform.
+    """
+    camera_script_path = os.path.join(SAVE_DIR, f'{uid}_textured_houdini_camera.py')
+    initial_camera_script_path = os.path.join(SAVE_DIR, f'{uid}_initial_houdini_camera.py')
+
+    if os.path.exists(camera_script_path):
+        return FileResponse(camera_script_path, media_type="text/x-python")
+    if os.path.exists(initial_camera_script_path):
+        return FileResponse(initial_camera_script_path, media_type="text/x-python")
+
+    return JSONResponse(
+        {"status": "not_found", "message": "Camera script is not available yet."},
+        status_code=404,
+    )
+
+
+@app.post("/selection/preview", response_model=SelectionPreviewResponse, tags=["generation"])
+async def preview_selection(request: SelectionPreviewRequest):
+    """
+    Preview the exact selected object image that will be sent to Hunyuan3D.
+
+    Use this from Houdini after a user chooses a box/lasso/mask. If the preview
+    looks clean, send the same `selection` object to /generate or /send.
+    """
+    try:
+        image = load_image_from_base64(request.image)
+        selected_image = apply_image_selection(image, request.selection)
+        return SelectionPreviewResponse(image=image_to_base64(selected_image))
+    except Exception as e:
+        logger.error(f"Selection preview failed: {e}")
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="0.0.0.0")
@@ -214,6 +263,7 @@ if __name__ == "__main__":
     
 
     model_semaphore = asyncio.Semaphore(args.limit_model_concurrency)
+    gpu_lock = threading.Lock()
 
     worker = ModelWorker(
         model_path=args.model_path, 

@@ -74,6 +74,7 @@ Generate a 3D model from an input image.
 **Parameters:**
 - `image` (required): Base64 encoded input image
 - `remove_background` (optional): Auto-remove background (default: true)
+- `selection` (optional): User-selected object box/mask to isolate before 3D generation
 - `texture` (optional): Generate textures (default: false)
 - `seed` (optional): Random seed (default: 1234)
 - `octree_resolution` (optional): Mesh resolution (default: 256)
@@ -88,6 +89,20 @@ Start asynchronous 3D generation task.
 
 **Parameters:** Same as `/generate`
 **Returns:** Task ID for status tracking
+
+#### POST `/selection/preview`
+Preview the exact isolated object image that will be sent into Hunyuan3D.
+
+Use this endpoint after the user picks an object in Houdini. If the preview is clean,
+send the same `selection` object to `/generate` or `/send`.
+
+**Selection fields:**
+- `box`: Optional `[x1, y1, x2, y2]` selected region
+- `box_format`: `normalized_1000`, `normalized`, or `pixel`
+- `mask`: Optional base64 grayscale/RGBA mask where white/alpha selects the object
+- `padding`: Pixel padding around the crop
+- `crop`: Whether to crop around the selected object
+- `transparent_outside_box`: If true and no mask is supplied, makes pixels outside the box transparent
 
 ### Status Endpoints
 
@@ -135,6 +150,12 @@ request_data = {
     "image": image_data,
     "texture": True,
     "seed": 42,
+    "selection": {
+        "box": [120, 80, 720, 880],
+        "box_format": "normalized_1000",
+        "padding": 32,
+        "crop": True
+    },
     "type": "glb"
 }
 
@@ -145,6 +166,22 @@ if response.status_code == 200:
     # Save the generated 3D model
     with open("output_model.glb", "wb") as f:
         f.write(response.content)
+```
+
+### Preview a User Selection
+
+```python
+preview_data = {
+    "image": image_data,
+    "selection": {
+        "box": [220, 140, 780, 900],
+        "box_format": "normalized_1000",
+        "padding": 24
+    }
+}
+
+response = requests.post("http://localhost:8081/selection/preview", json=preview_data)
+selected_png_base64 = response.json()["image"]
 ```
 
 ### Asynchronous Generation

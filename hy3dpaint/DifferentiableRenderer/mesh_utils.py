@@ -14,7 +14,10 @@
 
 import os
 import cv2
-import bpy
+try:
+    import bpy
+except ImportError:
+    bpy = None
 import math
 import numpy as np
 from io import StringIO
@@ -257,6 +260,38 @@ def _apply_auto_smooth(auto_smooth_angle: float):
         bpy.ops.object.shade_auto_smooth(angle=angle_rad)
 
 
+def _add_default_camera(elev: float = 0, azim: float = 0, camera_distance: float = 1.45, center=None):
+    """Add a Blender camera using the renderer's spherical camera convention."""
+    if center is None:
+        center = np.array([0, 0, 0], dtype=np.float32)
+    else:
+        center = np.array(center, dtype=np.float32)
+
+    elev = -elev
+    azim += 90
+    elev_rad = math.radians(elev)
+    azim_rad = math.radians(azim)
+    camera_position = np.array(
+        [
+            camera_distance * math.cos(elev_rad) * math.cos(azim_rad),
+            camera_distance * math.cos(elev_rad) * math.sin(azim_rad),
+            camera_distance * math.sin(elev_rad),
+        ],
+        dtype=np.float32,
+    )
+
+    bpy.ops.object.camera_add(location=tuple(camera_position))
+    camera = bpy.context.object
+    camera.name = "Generated_Camera"
+    from mathutils import Vector
+
+    direction = Vector(tuple(center)) - camera.location
+    camera.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+    camera.data.type = "PERSP"
+    camera.data.angle = math.radians(49.13)
+    bpy.context.scene.camera = camera
+
+
 def convert_obj_to_glb(
     obj_path: str,
     glb_path: str,
@@ -276,6 +311,7 @@ def convert_obj_to_glb(
         # Process meshes
         _merge_vertices_if_needed(merge_vertices)
         _apply_shading(shade_type, auto_smooth_angle)
+        _add_default_camera()
 
         # Export to GLB
         bpy.ops.export_scene.gltf(filepath=glb_path, use_active_scene=True)

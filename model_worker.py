@@ -4,9 +4,7 @@ Model worker for Hunyuan3D API server.
 import os
 import time
 import uuid
-import base64
 import trimesh
-from io import BytesIO
 from PIL import Image
 import torch
 
@@ -27,7 +25,13 @@ from hy3dshape import Hunyuan3DDiTFlowMatchingPipeline
 from hy3dshape.rembg import BackgroundRemover
 from hy3dshape.utils import logger
 from textureGenPipeline import Hunyuan3DPaintPipeline, Hunyuan3DPaintConfig
-from hy3dpaint.convert_utils import create_glb_with_pbr_materials
+from hy3dpaint.convert_utils import (
+    add_camera_to_glb,
+    create_glb_with_pbr_materials,
+    export_glb_with_camera,
+    write_houdini_camera_script,
+)
+from selection_utils import apply_image_selection, has_transparency, load_image_from_base64
 
 
 def quick_convert_with_obj2gltf(obj_path: str, glb_path: str):
@@ -37,19 +41,6 @@ def quick_convert_with_obj2gltf(obj_path: str, glb_path: str):
         'roughness': obj_path.replace('.obj', '_roughness.jpg')
         }
     create_glb_with_pbr_materials(obj_path, textures, glb_path)
-
-
-def load_image_from_base64(image):
-    """
-    Load an image from base64 encoded string.
-    
-    Args:
-        image (str): Base64 encoded image string
-        
-    Returns:
-        PIL.Image: Loaded image
-    """
-    return Image.open(BytesIO(base64.b64decode(image)))
 
 
 class ModelWorker:
@@ -103,17 +94,14 @@ class ModelWorker:
         if self.compile:
             self.pipeline.compile()
             
-        # Initialize texture generation pipeline (matching demo.py)
-        max_num_view = 6  # can be 6 to 9
-        resolution = 512  # can be 768 or 512
-        conf = Hunyuan3DPaintConfig(max_num_view, resolution)
-        conf.realesrgan_ckpt_path = "hy3dpaint/ckpt/RealESRGAN_x4plus.pth"
-        conf.multiview_cfg_path = "hy3dpaint/cfgs/hunyuan-paint-pbr.yaml"
-        conf.custom_pipeline = "hy3dpaint/hunyuanpaintpbr"
-        self.paint_pipeline = Hunyuan3DPaintPipeline(conf)
-        # clean cache in save_dir
+        # Defer initialization of texture generation pipeline
+        self.paint_pipeline = None
+        # clean cache in save_dir, skipping locked files (like active logs)
         for file in os.listdir(self.save_dir):
-            os.remove(os.path.join(self.save_dir, file))
+            try:
+                os.remove(os.path.join(self.save_dir, file))
+            except Exception:
+                pass
             
     def get_queue_length(self):
         """
@@ -161,10 +149,15 @@ class ModelWorker:
         else:
             raise ValueError("No input image provided")
 
-        # Convert to RGBA and remove background if needed
+        selection = params.get("selection")
+        if selection:
+            image = apply_image_selection(image, selection)
+
+        # Convert to RGBA and remove background if needed. If a user mask already
+        # provides alpha, keep that mask intact and avoid running another remover.
         image = image.convert("RGBA")
-        if image.mode == "RGB":
-            image = self.rembg(image)
+        if params.get("remove_background", True) and not has_transparency(image):
+            image = self.rembg(image.convert("RGB"))
 
         # Generate mesh 
         try:
@@ -178,41 +171,52 @@ class ModelWorker:
         
         initial_save_path = os.path.join(self.save_dir, f'{str(uid)}_initial.glb')
         mesh.export(initial_save_path)
+        add_camera_to_glb(initial_save_path)
         
         # Generate textured mesh as obj ( as in demo )
-        try:
-            output_mesh_path_obj = os.path.join(self.save_dir, f'{str(uid)}_texturing.obj')
-            textured_path_obj = self.paint_pipeline(
-                mesh_path=initial_save_path,
-                image_path=image,
-                output_mesh_path=output_mesh_path_obj,
-                save_glb=False            
-            )
-            logger.info("---Texture generation takes %s seconds ---" % (time.time() - start_time))
-            logger.info(f"output_mesh_path: {output_mesh_path_obj} textured_path: {textured_path_obj}")
-            # Use the textured GLB as the final output
-            #final_save_path = os.path.join(self.save_dir, f'{str(uid)}_textured.{file_type}')
-            #os.rename(output_mesh_path, final_save_path)
+        final_save_path = os.path.join(self.save_dir, f'{str(uid)}_textured.glb')
+        if params.get("texture", False):
+            try:
+                if self.paint_pipeline is None:
+                    logger.info("Initializing Hunyuan3D-Paint texture generation pipeline...")
+                    max_num_view = 6
+                    resolution = 512
+                    conf = Hunyuan3DPaintConfig(max_num_view, resolution)
+                    conf.realesrgan_ckpt_path = "hy3dpaint/ckpt/RealESRGAN_x4plus.pth"
+                    conf.multiview_cfg_path = "hy3dpaint/cfgs/hunyuan-paint-pbr.yaml"
+                    conf.custom_pipeline = "hy3dpaint/hunyuanpaintpbr"
+                    self.paint_pipeline = Hunyuan3DPaintPipeline(conf)
 
-            # Convert textured OBJ to GLB using obj2gltf with PBR support
-            print("convert textured OBJ to GLB")
-            glb_path_textured = os.path.join(self.save_dir, f'{str(uid)}_texturing.glb')
-            quick_convert_with_obj2gltf(textured_path_obj, glb_path_textured)
-            # now rename glb_path to uid_textured.glb
-            print("done.")
-            final_save_path = os.path.join(self.save_dir, f'{str(uid)}_textured.glb')
-            os.rename(glb_path_textured, final_save_path)
-            print(f"final_save_path: {final_save_path}")
+                output_mesh_path_obj = os.path.join(self.save_dir, f'{str(uid)}_texturing.obj')
+                textured_path_obj = self.paint_pipeline(
+                    mesh_path=initial_save_path,
+                    image_path=image,
+                    output_mesh_path=output_mesh_path_obj,
+                    save_glb=False            
+                )
+                logger.info("---Texture generation takes %s seconds ---" % (time.time() - start_time))
+                logger.info(f"output_mesh_path: {output_mesh_path_obj} textured_path: {textured_path_obj}")
 
-            
-        except Exception as e:
-            logger.error(f"Texture generation failed: {e}")
-            # Fall back to untextured mesh if texture generation fails
-            final_save_path = initial_save_path
-            logger.warning(f"Using untextured mesh as fallback: {final_save_path}")
+                # Convert textured OBJ to GLB using obj2gltf with PBR support
+                print("convert textured OBJ to GLB")
+                glb_path_textured = os.path.join(self.save_dir, f'{str(uid)}_texturing.glb')
+                quick_convert_with_obj2gltf(textured_path_obj, glb_path_textured)
+                # now rename glb_path to uid_textured.glb
+                print("done.")
+                os.rename(glb_path_textured, final_save_path)
+                print(f"final_save_path: {final_save_path}")
+            except Exception as e:
+                logger.error(f"Texture generation failed: {e}")
+                # Fall back to untextured mesh if texture generation fails
+                logger.warning("Using untextured mesh as fallback")
+                export_glb_with_camera(mesh, final_save_path)
+        else:
+            logger.info("Texture generation not requested: exporting GLB with visible camera marker")
+            export_glb_with_camera(mesh, final_save_path)
 
         if self.low_vram_mode:
             torch.cuda.empty_cache()
             
+        write_houdini_camera_script(final_save_path)
         logger.info("---Total generation takes %s seconds ---" % (time.time() - start_time))
         return final_save_path, uid 

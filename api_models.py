@@ -5,6 +5,55 @@ from typing import Optional, Literal
 from pydantic import BaseModel, Field
 
 
+class ImageSelection(BaseModel):
+    """User-selected image region for object-focused generation."""
+    box: Optional[list[float]] = Field(
+        None,
+        description="Selected bounding box [x1, y1, x2, y2].",
+        min_length=4,
+        max_length=4,
+        example=[120, 80, 720, 880]
+    )
+    box_format: Literal["normalized_1000", "normalized", "pixel"] = Field(
+        "normalized_1000",
+        description="Coordinate format for box: normalized_1000 (0-1000), normalized (0-1), or pixel."
+    )
+    mask: Optional[str] = Field(
+        None,
+        description="Optional base64 grayscale/RGBA mask. White/alpha selects the object."
+    )
+    mask_threshold: int = Field(
+        8,
+        description="Mask threshold from 0-255.",
+        ge=0,
+        le=255
+    )
+    mask_feather: int = Field(
+        1,
+        description="Soft edge radius in pixels applied to the mask.",
+        ge=0,
+        le=32
+    )
+    invert_mask: bool = Field(
+        False,
+        description="Invert the mask before applying it."
+    )
+    padding: int = Field(
+        24,
+        description="Padding in pixels around the selected region when cropping.",
+        ge=0,
+        le=512
+    )
+    crop: bool = Field(
+        True,
+        description="Crop the output image around the selected object."
+    )
+    transparent_outside_box: bool = Field(
+        False,
+        description="When no mask is supplied, make pixels outside the box transparent instead of only cropping."
+    )
+
+
 class GenerationRequest(BaseModel):
     """Request model for 3D generation API"""
     image: str = Field(
@@ -15,6 +64,10 @@ class GenerationRequest(BaseModel):
     remove_background: bool = Field(
         True,
         description="Whether to automatically remove background from input image"
+    )
+    selection: Optional[ImageSelection] = Field(
+        None,
+        description="Optional user-selected object box/mask to isolate before 3D generation."
     )
     texture: bool = Field(
         False,
@@ -80,3 +133,14 @@ class HealthResponse(BaseModel):
     """Response model for health check"""
     status: str = Field(..., description="Health status")
     worker_id: str = Field(..., description="Worker identifier") 
+
+
+class SelectionPreviewRequest(BaseModel):
+    """Request model for previewing the selected object crop."""
+    image: str = Field(..., description="Base64 encoded source image")
+    selection: ImageSelection = Field(..., description="User-selected object region")
+
+
+class SelectionPreviewResponse(BaseModel):
+    """Response model containing selected object preview image."""
+    image: str = Field(..., description="Base64 encoded PNG after applying the selection")

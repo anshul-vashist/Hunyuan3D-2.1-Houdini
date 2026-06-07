@@ -180,6 +180,6 @@ demo_textured.mtl
 demo_textured_metallic.jpg
 demo_textured_roughness.jpg
 demo_untextured.glb
-white_mesh_remesh.obj
 hy3dpaint/ckpt/
-
+hunyuan3d_output/
+houdini_plugin/otls/backup/

@@ -46,7 +46,7 @@ import uuid
 import numpy as np
 
 from hy3dshape.utils import logger
-from hy3dpaint.convert_utils import create_glb_with_pbr_materials
+from hy3dpaint.convert_utils import create_glb_with_pbr_materials, export_glb_with_camera, write_houdini_camera_script
 
 
 MAX_SEED = 1e7
@@ -157,6 +157,9 @@ def export_mesh(mesh, save_folder, textured=False, type='glb'):
         path = os.path.join(save_folder, f'white_mesh.{type}')
     if type not in ['glb', 'obj']:
         mesh.export(path)
+    elif type == 'glb':
+        export_glb_with_camera(mesh, path, include_normals=textured)
+        write_houdini_camera_script(path)
     else:
         mesh.export(path, include_normals=textured)
     return path

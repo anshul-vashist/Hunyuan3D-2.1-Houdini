@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<shelfDocument>
+  <!-- This file contains definitions of shelves, toolbars, and tools.
+ It should not be hand-edited when it is being used by the application.
+ Note, that two templates of the same name as the one being defined here will be merged. -->
+
+  <shelf name="hunyuan3d_shelf" label="Hunyuan3D">
+    <memberTool name="hunyuan3d_generator"/>
+  </shelf>
+
+  <tool name="hunyuan3d_generator" label="Hunyuan3D 2.1" icon="hicon:/SVGIcons.index?IMAGE_file.svg">
+    <helpText><![CDATA[Launch the Hunyuan3D 2.1 mesh generator panel.]]></helpText>
+    <script scriptType="python"><![CDATA[import hunyuan3d_tool
+import importlib
+# Support reloading the tool for development / updates
+importlib.reload(hunyuan3d_tool)
+hunyuan3d_tool.show_dialog()]]></script>
+  </tool>
+</shelfDocument>
