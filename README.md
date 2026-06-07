@@ -143,24 +143,33 @@ python3 gradio_app.py \
 ```
 
 
-### 🎩 Houdini Plugin (HDA)
+### 🎩 Houdini 2.1 Plugin - Quick Start Guide
 
-Hunyuan3D 2.1 can be installed as a native **Houdini Digital Asset (HDA)** SOP node that loads reconstructed models directly into your Geometry network:
+Generate 3D models directly inside your Houdini geometry network! This plugin integrates Hunyuan3D 2.1 as a native geometry node.
 
-1. **One-Click Installation**:
-   Open a terminal/cmd window at the root of this repository and run:
-   ```bash
-   install_houdini.bat
-   ```
-   *This compiles the HDA using your system's `hython.exe` and automatically registers the package json in your user Documents directory (`houdiniXX.X/packages/hunyuan3d.json`).*
+#### 1. Prerequisites (Setup the AI Backend First)
+Before using the Houdini plugin, please make sure you have installed the Hunyuan3D conda environment and downloaded the checkpoints by following the **Get Started** section above.
 
-2. **Usage**:
-   * Open Houdini.
-   * Go to the **Hunyuan3D** shelf tab and click the tool button, or create a `Hunyuan3D 2.1 Generator` SOP node in any Geometry network.
-   * Select a **Source Image**.
-   * Toggle **Generate Textures** on or off. Unchecking it will generate shape geometry only in under 20 seconds.
-   * Click **Generate 3D Model**.
-   * *The uvicorn API server starts automatically in a clean background shell (preventing environment/PYTHONPATH pollution) and loads the final asset directly into Houdini's native `gltf` geometry loader node.*
+#### 2. Easy One-Click Installation
+1. Open the folder where you downloaded this code (for example: `E:\Hunyuan3D-2.1-Houdini`).
+2. Find the file named **`install_houdini.bat`** and **double-click it** to run it.
+3. *That's it!* The installer will:
+   * Look for Houdini on your computer automatically.
+   * Compile the native geometry node plugin.
+   * Put it in your Houdini packages directory (under your Documents folder) so Houdini registers it automatically on startup.
+
+#### 3. How to Use inside Houdini
+1. **Open Houdini**.
+2. Look at the top shelf tabs. You will see a new tab named **Hunyuan3D**.
+3. Create a Geometry network (`geo` node), go inside, press `Tab` in the viewport, type **Hunyuan3D 2.1 Generator**, and place the node.
+4. On the node's parameters pane:
+   * Click the file icon next to **Source Image** and pick any picture (e.g., a photo of a chair, bed, or toy).
+   * Under Reconstruction Settings, you can check/uncheck **Generate Textures**. (Unchecking it generates only the shape mesh, which is extremely fast—taking under 20 seconds).
+5. Click the **Generate 3D Model** button.
+   * *The plugin will automatically start the background AI server in a separate Command Prompt window (you don't have to launch it manually).*
+   * A progress dialog will show up inside Houdini tracking the reconstruction phase.
+   * Once it is finished, the 3D model will instantly load into your viewport!
+
 
 
 ## 🔗 BibTeX
